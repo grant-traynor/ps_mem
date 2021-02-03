@@ -167,6 +167,11 @@ def parse_options():
         help='Show by process rather than by program',
     )
     parser.add_argument(
+        '-c', '--as-csv',
+        action='store_true',
+        help='Write output in CSV format',
+    )
+    parser.add_argument(
         '-S', '--swap',
         dest='show_swap',
         action='store_true',
@@ -177,6 +182,12 @@ def parse_options():
         dest='pids',
         metavar='<pid>[,pid2,...pidN]',
         help='Only show memory usage PIDs in the specified list',
+    )
+    parser.add_argument(
+        '-n',
+        dest='names',
+        metavar='<name>[,name1,...nameN]',
+        help='Only show memory usage for processes with names matching the list',
     )
     parser.add_argument(
         '-w',
@@ -194,6 +205,13 @@ def parse_options():
         except ValueError:
             parser.error('Invalid PID(s): %s' % args.pids)
 
+    args.names_to_show = []
+    if args.names:
+        try:
+            args.names_to_show = [x for x in args.names.split(',')]
+        except ValueError:
+            parser.error('Invalid Name(s): %s' % args.names)
+
     if args.watch is not None:
         if args.watch <= 0:
             parser.error('Seconds must be positive! (%s)' % args.watch)
@@ -205,6 +223,8 @@ def parse_options():
         args.only_total,
         args.discriminate_by_pid,
         args.show_swap,
+        args.names_to_show,
+        args.as_csv,
     )
 
 
@@ -474,7 +494,7 @@ def show_val_accuracy( ram_inacc, swap_inacc, only_total, show_swap ):
             sys.exit(1)
 
 
-def get_memory_usage(pids_to_show, split_args, discriminate_by_pid,
+def get_memory_usage(pids_to_show, split_args, discriminate_by_pid, names_to_show=None,
                      include_self=False, only_self=False):
     cmds = {}
     shareds = {}
@@ -501,6 +521,10 @@ def get_memory_usage(pids_to_show, split_args, discriminate_by_pid,
             #operation not permitted
             #kernel threads don't have exe links or
             #process gone
+            continue
+
+        # Filter names
+        if names_to_show and not [x for x in names_to_show if x in cmd]:
             continue
 
         try:
@@ -566,7 +590,10 @@ def print_header(show_swap, discriminate_by_pid):
 
 
 def print_memory_usage(sorted_cmds, shareds, count, total, swaps, total_swap,
-                       show_swap):
+                       show_swap, as_csv=False):
+    if as_csv:
+        sys.stdout.write('--as CSV\n')
+
     for cmd in sorted_cmds:
 
         output_string = "%9s + %9s = %9s"
@@ -614,7 +641,7 @@ def main():
     sys.stderr = Unbuffered(sys.stderr)
 
     split_args, pids_to_show, watch, only_total, discriminate_by_pid, \
-    show_swap = parse_options()
+    show_swap, names_to_show, as_csv = parse_options()
 
     verify_environment(pids_to_show)
 
@@ -627,14 +654,14 @@ def main():
             while sorted_cmds:
                 sorted_cmds, shareds, count, total, swaps, total_swap = \
                     get_memory_usage(pids_to_show, split_args,
-                                     discriminate_by_pid)
+                                     discriminate_by_pid, names_to_show)
                 if only_total and show_swap and have_swap_pss:
                     sys.stdout.write(human(total_swap, units=1)+'\n')
                 elif only_total and not show_swap and have_pss:
                     sys.stdout.write(human(total, units=1)+'\n')
                 elif not only_total:
                     print_memory_usage(sorted_cmds, shareds, count, total,
-                                       swaps, total_swap, show_swap)
+                                       swaps, total_swap, show_swap, as_csv)
 
                 sys.stdout.flush()
                 time.sleep(watch)
@@ -646,14 +673,14 @@ def main():
         # This is the default behavior
         sorted_cmds, shareds, count, total, swaps, total_swap = \
             get_memory_usage(pids_to_show, split_args,
-                             discriminate_by_pid)
+                             discriminate_by_pid, names_to_show)
         if only_total and show_swap and have_swap_pss:
             sys.stdout.write(human(total_swap, units=1)+'\n')
         elif only_total and not show_swap and have_pss:
             sys.stdout.write(human(total, units=1)+'\n')
         elif not only_total:
             print_memory_usage(sorted_cmds, shareds, count, total, swaps,
-                               total_swap, show_swap)
+                               total_swap, show_swap, as_csv)
 
     # We must close explicitly, so that any EPIPE exception
     # is handled by our excepthook, rather than the default
